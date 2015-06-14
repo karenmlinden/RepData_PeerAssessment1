@@ -1,25 +1,252 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
+author: "Karen Linden"
+date: "Sunday, June 14, 2015"
 output: 
   html_document:
     keep_md: true
 ---
+    
+---
 
+opts_chunk$set(echo=TRUE, results='asis')
 
 ## Loading and preprocessing the data
 
+Read in the data.
 
+```{r}
+setwd('~/R/ReproducibleResearchProject1')
+
+if(!file.exists('activity.csv')){
+        unzip('repdata-data-activity.zip')
+}
+
+data.file <- read.csv("activity.csv") # Read in data file
+```
+
+Create a date.time column that combines the date and interval columns. Ended up not needs this field
+
+```{r}
+time.fix <- formatC(data.file$interval / 100, 2, format='f')
+data.file$date.time <- as.POSIXct(paste(data.file$date, time.fix),
+                                 format='%Y-%m-%d %H.%M',
+                                 tz='GMT')
+```
+
+For analyzing the convenient date file To do this it will help us with the analysis.
+
+```{r}
+date.fix <- strptime(data.file$date, "%Y-%m-%d")
+data.file$date.update <- date.fix
+```
+
+unique.dates and unique.intervals, they are variables that store a list of all possible dates and intervals. These will primarily be used to help plot our necessary data and for data processing.
+
+```{r}
+unique.dates <- unique(date.fix)
+unique.intervals <- unique(data.file$interval)
+```
 
 ## What is mean total number of steps taken per day?
 
+First, calculate the mean number of steps for each day:
 
+```{r}
+steps.by.day <- split(data.file$steps, date.fix$yday)
+steps.per.day <- sapply(steps.by.day, sum, na.rm=TRUE)
+
+```
+Mean and median for the total steps per day:
+
+```{r}
+mean.stepsperday <- sapply(steps.by.day, mean, na.rm=TRUE)
+mean.dataframe <- data.frame(date=unique.dates, mean.stepsperday=mean.stepsperday, row.names=NULL)
+mean.dataframe
+
+median.stepsperday <- sapply(steps.by.day, median, na.rm=TRUE)
+median.dataframe <- data.frame(date=unique.dates, median.stepsperday=median.stepsperday, row.names=NULL)
+median.dataframe
+
+```
+Look at the distribution of total number of steps per day with a histogram:
+
+```{r}
+
+plot(unique.dates, 
+     steps.per.day, 
+     main="Histogram of Steps Taken Each Day", 
+     xlab="Date (10-01-2012 Thru 11-30-2012)", 
+     ylab="Steps", 
+     type="h", 
+     lwd=4, 
+     col="red")
+```
 
 ## What is the average daily activity pattern?
 
+Calculate the mean steps for each five minute interval, and then put it in a data frame.
 
+```{r}
+interval.split <- split(data.file$steps, data.file$interval)
+
+average.interval <- sapply(interval.split, mean, na.rm=TRUE)
+```
+
+Let's take a look at a time series plot for the mean steps.
+
+```{r}
+plot(unique.intervals, average.interval, 
+     type="l",
+     main="Average Number of Steps per Interval Across All Days", 
+     xlab="Interval", 
+     ylab="Average # of Steps Across All Days", 
+     lwd=2, 
+     col="green")
+
+max.interval.day <- max(average.interval, na.rm=TRUE)
+max.index <- as.numeric(which(average.interval == max.interval.day))
+
+
+max.Interval <- unique.intervals[max.index]
+abline(v=max.Interval , col="orange", lwd=3)
+
+```
+The maximum number of steps averaged across all days is:
+
+```{r}
+max.Interval
+```
 
 ## Imputing missing values
 
+Identify the number of intervals with missing step counts ("NA's"):
+
+```{r}
+missing.steps <- is.na(data.file$steps)
+# How many missing
+table(missing.steps)
+```
+
+To fill in the missing values, I'll use mean steps for a five-minute interval for the entire dataset.
+
+```{r}
+library(Hmisc)
+averages <- aggregate(x=list(steps=data.file$steps), by=list(interval=data.file$interval),
+                                             FUN=mean, na.rm=TRUE)
+
+fill.value <- function(steps, interval) {
+        filled <- NA
+        if (!is.na(steps))
+                filled <- c(steps)
+        else
+                filled <- (averages[averages$interval==interval, "steps"])
+        return(filled)
+}
+fill.data <- data.file
+fill.data$steps <- mapply(fill.value, fill.data$steps, fill.data$interval)
+
+```
+
+Compare the mean and median steps for each day between the original data set and the imputed data set.
+
+```{r}
+newsteps.by.day <- split(fill.data$steps, date.fix$yday)
+newsteps.per.day <- sapply(newsteps.by.day, sum)
+```
+
+And a histogram of the imputed dataset.
+```{r}
+par(mfcol=c(2,1))
+
+
+plot(unique.dates, 
+     steps.per.day, 
+     main="Histogram of Steps Taken Each Day", 
+     xlab="Date (10-01-2012 Thru 11-30-2012)", 
+     ylab="Steps", 
+     type="h", 
+     lwd=4, 
+     col="red")
+
+# Plot the modified histogram after
+
+plot(unique.dates, 
+     newsteps.per.day, 
+     main="Histogram of Steps Taken Each Day", 
+     xlab="Date (10-01-2012 Thru 11-30-2012)", 
+     ylab="Steps", 
+     type="h", 
+     lwd=4, 
+     col="red")
+```
+
+Mean and median for the total steps per day:
+
+```{r}
+newmean.stepsperday <- sapply(newsteps.by.day, mean, na.rm=TRUE)
+newmean.dataframe <- data.frame(date=unique.dates, newmean.stepsperday=newmean.stepsperday, row.names=NULL)
+newmean.dataframe
+
+newmedian.stepsperday <- sapply(newsteps.by.day, median, na.rm=TRUE)
+newmedian.dataframe <- data.frame(date=unique.dates, newmedian.stepsperday=newmedian.stepsperday, row.names=NULL)
+newmedian.dataframe
+```
+
+Imputing the missing data has increased the average number of steps.
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+Add a column for whether a day is a weekday or weekend.
+
+```{r}
+dayofweek <- function(date) {
+        day <- weekdays(date)
+        if (day %in% c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday"))
+                return("weekday")
+        else if (day %in% c("Saturday", "Sunday"))
+                return("weekend")
+        else
+                stop("invalid date")
+}
+
+fill.date <- fill.data 
+fill.date$date <- as.Date(fill.data$date)
+fill.date$dayofweek <- sapply(fill.date$date, FUN=dayofweek)
+```
+
+
+```{r}
+weekday <- fill.date[fill.date$dayofweek == "weekday", ]
+weekend <- fill.date[fill.date$dayofweek == "weekend", ]
+
+weekday.split <- split(weekday$steps, weekday$interval)
+weekend.split <- split(weekend$steps, weekend$interval)
+
+mean.weekday.split <- sapply(weekday.split, mean)
+mean.weekend.split <- sapply(weekend.split, mean)
+```
+Compare the patterns between weekdays and weekends.
+
+```{r}
+par(mfcol=c(2,1))
+
+plot(unique.intervals, 
+     mean.weekday.split, 
+     type="l",
+     main="Average number of steps per interval across all weekdays", 
+     xlab="Interval", 
+     ylab="# of Steps on weekdays", 
+     lwd=2, 
+     col="red")
+
+plot(unique.intervals, 
+     mean.weekend.split, 
+     type="l",
+     main="Average number of steps per interval across all weekends", 
+     xlab="Interval", 
+     ylab="# of steps om weekends", 
+     lwd=2, 
+     col="red")
+```
